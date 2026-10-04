@@ -59,13 +59,15 @@ const P = {
   DeepSeek:{c:'#4d6bfe', m:'deepseek-chat', url:'https://api.deepseek.com/chat/completions'},
   Kimi:    {c:'#e67e22', m:'kimi-k2-0905-preview', url:'https://api.moonshot.ai/v1/chat/completions'},
   Grok:    {c:'#7a7a80', m:'grok-4', url:'https://api.x.ai/v1/chat/completions'},
-  Claude:  {c:'#c8744a', m:'claude-sonnet-5-5'}
+  Claude:  {c:'#c8744a', m:'claude-sonnet-5-5'},
+  Groq:    {c:'#f55036', m:'llama-3.3-70b-versatile', url:'https://api.groq.com/openai/v1/chat/completions'},
+  OpenRouter:{c:'#6467f2', m:'meta-llama/llama-3.3-70b-instruct:free', url:'https://openrouter.ai/api/v1/chat/completions'}
 };
 const names = Object.keys(P);
 const $ = id => document.getElementById(id);
 const get = k => { try { return localStorage.getItem(k) || '' } catch(e) { return '' } };
 const set = (k, v) => { try { localStorage.setItem(k, v) } catch(e) {} };
-let sel = new Set(['ChatGPT','Claude']), running = false, stopFlag = false, msgs = [];
+let sel = new Set(['Groq','OpenRouter']), running = false, stopFlag = false, msgs = [];
 
 // Chips
 names.forEach(n => {
