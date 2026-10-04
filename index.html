@@ -60,8 +60,8 @@ const P = {
   Kimi:    {c:'#e67e22', m:'kimi-k2-0905-preview', url:'https://api.moonshot.ai/v1/chat/completions'},
   Grok:    {c:'#7a7a80', m:'grok-4', url:'https://api.x.ai/v1/chat/completions'},
   Claude:  {c:'#c8744a', m:'claude-sonnet-5-5'},
-  Groq:    {c:'#f55036', m:'llama-3.3-70b-versatile', url:'https://api.groq.com/openai/v1/chat/completions'},
-  OpenRouter:{c:'#6467f2', m:'meta-llama/llama-3.3-70b-instruct:free', url:'https://openrouter.ai/api/v1/chat/completions'}
+  Groq:    {c:'#f55036', m:['openai/gpt-oss-120b','groq/compound-mini','groq/compound'], url:'https://api.groq.com/openai/v1/chat/completions'},
+  OpenRouter:{c:'#6467f2', m:['openrouter/free'], url:'https://openrouter.ai/api/v1/chat/completions'}
 };
 const names = Object.keys(P);
 const $ = id => document.getElementById(id);
@@ -84,7 +84,7 @@ names.forEach(n => {
   const s = document.createElement('div'); s.className = 'sec';
   s.innerHTML = `<b style="color:${P[n].c}">${n}</b>
     <input type="password" id="k-${n}" placeholder="Clé API" autocomplete="off">
-    <input id="m-${n}" placeholder="Modèle (${P[n].m})" autocapitalize="off" autocorrect="off">`;
+    <input id="m-${n}" placeholder="Modèle (auto : ${[].concat(P[n].m)[0]})" autocapitalize="off" autocorrect="off">`;
   $('fields').appendChild(s);
   $('k-'+n).value = get('key.'+n); $('m-'+n).value = get('model.'+n);
 });
@@ -95,10 +95,32 @@ $('close').onclick = () => {
 };
 
 // Appels API
+async function candidates(n) {
+  const user = get('model.'+n);
+  if (user) return [user];
+  if (n === 'OpenRouter') {
+    try {
+      const j = await (await fetch('https://openrouter.ai/api/v1/models')).json();
+      const free = j.data.filter(m => m.id.endsWith(':free') && m.pricing && +m.pricing.prompt === 0)
+        .sort((a, b) => (b.context_length || 0) - (a.context_length || 0)).slice(0, 5).map(m => m.id);
+      if (free.length) return free;
+    } catch(e) {}
+  }
+  return [].concat(P[n].m);
+}
+
 async function ask(n, system, prompt) {
   const key = get('key.'+n);
   if (!key) throw new Error('Clé API manquante (bouton « Clés API »).');
-  const model = get('model.'+n) || P[n].m;
+  let last;
+  for (const model of await candidates(n)) {
+    try { return await call(n, key, model, system, prompt); }
+    catch(e) { last = e; if (![400, 404, 429].includes(e.status)) throw e; }
+  }
+  throw last;
+}
+
+async function call(n, key, model, system, prompt) {
   let url, headers = {'Content-Type':'application/json'}, body;
   if (P[n].url) {
     url = P[n].url; headers.Authorization = 'Bearer ' + key;
@@ -117,7 +139,10 @@ async function ask(n, system, prompt) {
   try { r = await fetch(url, {method:'POST', headers, body:JSON.stringify(body)}); }
   catch(e) { throw new Error('Requête bloquée (réseau ou CORS). ' + e.message); }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error('HTTP ' + r.status + ' : ' + JSON.stringify(j).slice(0, 200));
+  if (!r.ok) {
+    const err = new Error('HTTP ' + r.status + ' (' + model + ') : ' + JSON.stringify(j).slice(0, 200));
+    err.status = r.status; throw err;
+  }
   const t = P[n].url ? j.choices?.[0]?.message?.content
           : n === 'Claude' ? j.content?.[0]?.text
           : j.candidates?.[0]?.content?.parts?.[0]?.text;
