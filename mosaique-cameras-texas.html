@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mosaïque caméras – Texas</title>
+<style>
+:root{--bg:#13202b;--panel:#1b2c3a;--line:#2d4357;--txt:#eef3f7;--mut:#8fa6b8;--acc:#f2b632;--bad:#e5645a;box-sizing:border-box}
+@media (prefers-color-scheme:light){:root{--bg:#e9eef2;--panel:#fff;--line:#c5d2dc;--txt:#13202b;--mut:#587084;--acc:#b9780a;--bad:#c2372d}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.4 "Arial Narrow","Roboto Condensed",system-ui,sans-serif}
+body{padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+h1{font-size:19px;margin:0;margin-right:auto;letter-spacing:.2px}
+h1 small{display:block;font-size:12px;font-weight:400;color:var(--mut)}
+button,select,input,textarea{font:inherit;color:var(--txt);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+button{cursor:pointer}button:hover{border-color:var(--acc)}
+button.on{background:var(--acc);color:#13202b;border-color:var(--acc)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+label.ctl{display:flex;gap:6px;align-items:center;color:var(--mut);font-size:13px}
+#panel{display:none;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+#panel.open{display:block}
+#panel h2{font-size:14px;margin:0 0 6px}
+#list{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:4px 12px;margin-bottom:10px}
+#list label{display:flex;gap:6px;align-items:center}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+textarea{width:100%;min-height:150px;font:12px/1.4 ui-monospace,Menlo,monospace}
+p.help{color:var(--mut);font-size:13px;margin:4px 0 8px}
+#grid{display:grid;gap:6px;padding:8px;grid-template-columns:repeat(var(--cols,3),1fr)}
+.tile{position:relative;background:#000;border:1px solid var(--line);border-radius:6px;overflow:hidden;aspect-ratio:4/3;cursor:pointer}
+.tile img{width:100%;height:100%;object-fit:cover;display:block}
+.cap{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;background:linear-gradient(transparent,rgba(0,0,0,.85));color:#fff;font-size:13px;display:flex;justify-content:space-between;gap:6px}
+.cap i{font-style:normal;color:var(--acc)}
+.msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:10px;color:#9fb4c4;font-size:13px;gap:4px}
+.msg b{color:var(--bad);font-weight:600}
+.big .tile{aspect-ratio:16/9}
+#full{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:20;padding:10px}
+#full.open{display:flex}#full img{max-width:100%;max-height:100%}
+#empty{padding:40px 20px;text-align:center;color:var(--mut)}
+@media (max-width:640px){#grid{grid-template-columns:repeat(min(var(--cols,3),2),1fr)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Caméras de trafic – Texas<small id="sub"></small></h1>
+  <label class="ctl">Colonnes
+    <select id="cols"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select>
+  </label>
+  <label class="ctl">Actualiser
+    <select id="ref"><option value="0">Jamais</option><option value="15">15 s</option><option value="30" selected>30 s</option><option value="60">60 s</option></select>
+  </label>
+  <button id="bPanel" aria-expanded="false">Choisir / configurer</button>
+</header>
+
+<section id="panel">
+  <h2>Caméras affichées (San Antonio, zip 78210, rayon 3 mi)</h2>
+  <div class="row"><button id="all">Tout cocher</button><button id="none">Tout décocher</button></div>
+  <div id="list"></div>
+
+  <h2>Adresses des images</h2>
+  <p class="help">Une ligne par caméra : <code>Nom exact | URL de l’image (JPG/PNG qui se met à jour)</code>. Trouvez l’URL en ouvrant la caméra sur le site du TxDOT / San Antonio TransGuide, puis clic droit sur l’image → copier l’adresse de l’image. Ajoutez vos propres caméras avec une nouvelle ligne.</p>
+  <textarea id="urls" spellcheck="false"></textarea>
+  <div class="row"><button id="save">Enregistrer</button><button id="reset">Réinitialiser</button>
+  <a href="https://truckerguideapp.com/san-antonio.texas/type=traffic-cameras?zip=78210&radius=3&lat=29.415828&lng=-98.485737" target="_blank" rel="noopener" style="align-self:center;color:var(--acc)">Page source Trucker Guide</a></div>
+</section>
+
+<main id="grid"></main>
+<div id="empty" hidden>Aucune caméra sélectionnée. Ouvrez « Choisir / configurer » pour en cocher.</div>
+<div id="full"><img alt=""></div>
+
+<script>
+const DEFAULTS=[
+ ["IH 10 at IH 35"],["IH 35 at Walters"],["IH 35 at Pine"],["IH 35 at Lexington"],["IH 35 at Martin"],
+ ["IH 35 at Alamo"],["IH 35 at Powell"],["IH 37 at Fair"],["IH 37 at IH 10"],["IH 37 at 6th St"],
+ ["IH 37 at Jones"],["US 90 at IH 35"],["US 90 at Nogalitos"]
+];
+const KEY="mosaique-cameras-tx-v1";
+let S={sel:DEFAULTS.map(c=>c[0]),urls:{},extra:[],cols:3,ref:30};
+try{const r=localStorage.getItem(KEY);if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
+const $=id=>document.getElementById(id);
+const names=()=>[...DEFAULTS.map(c=>c[0]),...S.extra.filter(n=>!DEFAULTS.some(d=>d[0]===n))];
+const persist=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
+let timer=null;
+
+function bust(u){return u+(u.includes("?")?"&":"?")+"_t="+Date.now()}
+
+function renderList(){
+  $("list").innerHTML="";
+  names().forEach(n=>{
+    const l=document.createElement("label"),c=document.createElement("input");
+    c.type="checkbox";c.checked=S.sel.includes(n);
+    c.onchange=()=>{S.sel=c.checked?[...S.sel,n]:S.sel.filter(x=>x!==n);persist();renderGrid()};
+    l.append(c,document.createTextNode(n+(S.urls[n]?"":" (sans URL)")));
+    $("list").append(l);
+  });
+}
+function renderUrls(){
+  $("urls").value=names().map(n=>n+" | "+(S.urls[n]||"")).join("\n");
+}
+function renderGrid(){
+  const g=$("grid");g.innerHTML="";
+  g.style.setProperty("--cols",S.cols);
+  g.classList.toggle("big",S.cols<=2);
+  const list=names().filter(n=>S.sel.includes(n));
+  $("empty").hidden=list.length>0;
+  $("sub").textContent=list.length+" caméra"+(list.length>1?"s":"")+" • "+(S.ref?"mise à jour toutes les "+S.ref+" s":"actualisation manuelle");
+  list.forEach(n=>{
+    const t=document.createElement("div");t.className="tile";t.title=n;
+    const url=S.urls[n];
+    const cap=document.createElement("div");cap.className="cap";
+    cap.innerHTML="<span></span><i>"+(url?"En direct":"")+"</i>";
+    cap.firstChild.textContent=n;
+    if(url){
+      const im=document.createElement("img");im.alt=n;im.dataset.u=url;im.referrerPolicy="no-referrer";
+      im.src=bust(url);
+      im.onerror=()=>{im.remove();msg(t,"Image indisponible","Vérifiez l’URL ou réessayez.")};
+      t.onclick=()=>{$("full").querySelector("img").src=bust(url);$("full").classList.add("open")};
+      t.append(im);
+    }else msg(t,"Pas d’URL d’image","Ajoutez-la dans « Choisir / configurer ».");
+    t.append(cap);g.append(t);
+  });
+}
+function msg(t,a,b){
+  const m=document.createElement("div");m.className="msg";
+  m.innerHTML="<b></b><span></span>";m.firstChild.textContent=a;m.lastChild.textContent=b;t.prepend(m);
+}
+function tick(){
+  document.querySelectorAll("#grid img").forEach(im=>{
+    const n=new Image();const u=bust(im.dataset.u);
+    n.onload=()=>{im.src=u};n.src=u; // ne remplace l'image que si la nouvelle est chargée
+  });
+}
+function setTimer(){clearInterval(timer);if(S.ref>0)timer=setInterval(tick,S.ref*1000)}
+
+$("bPanel").onclick=()=>{const o=$("panel").classList.toggle("open");$("bPanel").classList.toggle("on",o);$("bPanel").setAttribute("aria-expanded",o)};
+$("cols").value=S.cols;$("ref").value=S.ref;
+$("cols").onchange=e=>{S.cols=+e.target.value;persist();renderGrid()};
+$("ref").onchange=e=>{S.ref=+e.target.value;persist();setTimer();renderGrid()};
+$("all").onclick=()=>{S.sel=names();persist();renderList();renderGrid()};
+$("none").onclick=()=>{S.sel=[];persist();renderList();renderGrid()};
+$("save").onclick=()=>{
+  const urls={},extra=[];
+  $("urls").value.split("\n").forEach(l=>{
+    const i=l.indexOf("|");if(i<0)return;
+    const n=l.slice(0,i).trim(),u=l.slice(i+1).trim();
+    if(!n)return;
+    if(u)urls[n]=u;
+    if(!DEFAULTS.some(d=>d[0]===n)){extra.push(n);if(!S.sel.includes(n))S.sel.push(n)}
+  });
+  S.urls=urls;S.extra=extra;persist();renderList();renderGrid();renderUrls();
+};
+$("reset").onclick=()=>{if(confirm("Tout réinitialiser ?")){S={sel:DEFAULTS.map(c=>c[0]),urls:{},extra:[],cols:3,ref:30};persist();location.reload()}};
+$("full").onclick=()=>$("full").classList.remove("open");
+document.addEventListener("keydown",e=>{if(e.key==="Escape")$("full").classList.remove("open")});
+
+renderList();renderUrls();renderGrid();setTimer();
+</script>
+</body>
+</html>
