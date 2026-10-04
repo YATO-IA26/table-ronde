@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Table ronde IA">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Table ronde d'IA</title>
+<style>
+:root{--bg:#f6f6f7;--card:#fff;--fg:#1c1c1e;--mut:#6b6b70;--line:#e2e2e5;--acc:#2f6fed}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#000;--card:#1c1c1e;--fg:#f2f2f7;--mut:#98989f;--line:#2c2c2e;--acc:#5b93ff}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,system-ui,sans-serif;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
+header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;font-weight:600}
+button{font:inherit;border:0;border-radius:10px;padding:10px 16px;background:var(--acc);color:#fff}
+button.ghost{background:var(--card);color:var(--fg);border:1px solid var(--line)}
+button.stop{background:#d93a3a}
+button:disabled{opacity:.4}
+#chat{flex:1;overflow-y:auto;padding:8px 16px;display:flex;flex-direction:column;gap:10px}
+.msg{background:var(--card);border-radius:14px;padding:10px 12px;border-left:4px solid var(--c,#888);white-space:pre-wrap}
+.msg b{display:block;font-size:12px;color:var(--c,var(--mut));margin-bottom:2px}
+.msg.err{color:#d93a3a}
+.empty{color:var(--mut);text-align:center;margin-top:30px}
+#ctl{padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);background:var(--card);display:flex;flex-direction:column;gap:10px}
+textarea,input,select{width:100%;font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+#chips{display:flex;gap:8px;overflow-x:auto}
+.chip{flex:none;padding:6px 12px;border-radius:99px;border:1px solid var(--c);color:var(--c);font-size:14px}
+.chip.on{background:var(--c);color:#fff}
+.row{display:flex;gap:10px;align-items:center}
+#set{position:fixed;inset:0;background:var(--bg);overflow-y:auto;padding:calc(12px + env(safe-area-inset-top,0px)) 16px 40px;display:none}
+#set.open{display:block}
+.sec{background:var(--card);border-radius:14px;padding:12px;margin:12px 0;display:flex;flex-direction:column;gap:8px}
+small{color:var(--mut)}
+</style>
+</head>
+<body>
+<header><span>Table ronde d'IA</span><button class="ghost" id="bset">Clés API</button></header>
+<div id="chat"><div class="empty">Choisissez un sujet et au moins 2 IA, puis lancez.</div></div>
+<div id="ctl">
+  <textarea id="topic" rows="2" placeholder="Sujet de discussion"></textarea>
+  <div id="chips"></div>
+  <div class="row">
+    <label style="flex:1">Tours <select id="rounds"></select></label>
+    <button id="go">Lancer</button>
+  </div>
+</div>
+<div id="set">
+  <div class="row" style="justify-content:space-between"><b>Réglages</b><button id="close">OK</button></div>
+  <small>Les clés restent dans le stockage de ce navigateur, sur cet iPhone. Elles sont envoyées uniquement au service concerné.</small>
+  <div id="fields"></div>
+</div>
+<script>
+const P = {
+  ChatGPT: {c:'#10a37f', m:'gpt-4o', url:'https://api.openai.com/v1/chat/completions'},
+  Gemini:  {c:'#4285f4', m:'gemini-2.5-flash'},
+  DeepSeek:{c:'#4d6bfe', m:'deepseek-chat', url:'https://api.deepseek.com/chat/completions'},
+  Kimi:    {c:'#e67e22', m:'kimi-k2-0905-preview', url:'https://api.moonshot.ai/v1/chat/completions'},
+  Grok:    {c:'#7a7a80', m:'grok-4', url:'https://api.x.ai/v1/chat/completions'},
+  Claude:  {c:'#c8744a', m:'claude-sonnet-5-5'}
+};
+const names = Object.keys(P);
+const $ = id => document.getElementById(id);
+const get = k => { try { return localStorage.getItem(k) || '' } catch(e) { return '' } };
+const set = (k, v) => { try { localStorage.setItem(k, v) } catch(e) {} };
+let sel = new Set(['ChatGPT','Claude']), running = false, stopFlag = false, msgs = [];
+
+// Chips
+names.forEach(n => {
+  const d = document.createElement('div');
+  d.className = 'chip' + (sel.has(n) ? ' on' : '');
+  d.textContent = n; d.style.setProperty('--c', P[n].c);
+  d.onclick = () => { sel.has(n) ? sel.delete(n) : sel.add(n); d.classList.toggle('on'); };
+  $('chips').appendChild(d);
+});
+for (let i = 1; i <= 10; i++) $('rounds').add(new Option(i, i, i === 3, i === 3));
+
+// Réglages
+names.forEach(n => {
+  const s = document.createElement('div'); s.className = 'sec';
+  s.innerHTML = `<b style="color:${P[n].c}">${n}</b>
+    <input type="password" id="k-${n}" placeholder="Clé API" autocomplete="off">
+    <input id="m-${n}" placeholder="Modèle (${P[n].m})" autocapitalize="off" autocorrect="off">`;
+  $('fields').appendChild(s);
+  $('k-'+n).value = get('key.'+n); $('m-'+n).value = get('model.'+n);
+});
+$('bset').onclick = () => $('set').classList.add('open');
+$('close').onclick = () => {
+  names.forEach(n => { set('key.'+n, $('k-'+n).value.trim()); set('model.'+n, $('m-'+n).value.trim()); });
+  $('set').classList.remove('open');
+};
+
+// Appels API
+async function ask(n, system, prompt) {
+  const key = get('key.'+n);
+  if (!key) throw new Error('Clé API manquante (bouton « Clés API »).');
+  const model = get('model.'+n) || P[n].m;
+  let url, headers = {'Content-Type':'application/json'}, body;
+  if (P[n].url) {
+    url = P[n].url; headers.Authorization = 'Bearer ' + key;
+    body = {model, messages:[{role:'system',content:system},{role:'user',content:prompt}]};
+  } else if (n === 'Claude') {
+    url = 'https://api.anthropic.com/v1/messages';
+    headers['x-api-key'] = key; headers['anthropic-version'] = '2023-06-01';
+    headers['anthropic-dangerous-direct-browser-access'] = 'true';
+    body = {model, max_tokens:1024, system, messages:[{role:'user',content:prompt}]};
+  } else {
+    url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    headers['x-goog-api-key'] = key;
+    body = {system_instruction:{parts:[{text:system}]}, contents:[{role:'user',parts:[{text:prompt}]}]};
+  }
+  let r;
+  try { r = await fetch(url, {method:'POST', headers, body:JSON.stringify(body)}); }
+  catch(e) { throw new Error('Requête bloquée (réseau ou CORS). ' + e.message); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error('HTTP ' + r.status + ' : ' + JSON.stringify(j).slice(0, 200));
+  const t = P[n].url ? j.choices?.[0]?.message?.content
+          : n === 'Claude' ? j.content?.[0]?.text
+          : j.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!t) throw new Error('Réponse vide.');
+  return t.trim();
+}
+
+// Affichage
+function add(who, text, err) {
+  msgs.push({who, text, err});
+  const d = document.createElement('div');
+  d.className = 'msg' + (err ? ' err' : '');
+  d.style.setProperty('--c', P[who]?.c || '#888');
+  const b = document.createElement('b'); b.textContent = who;
+  d.append(b, document.createTextNode(text));
+  if ($('chat').querySelector('.empty')) $('chat').innerHTML = '';
+  $('chat').appendChild(d);
+  $('chat').scrollTop = $('chat').scrollHeight;
+}
+
+// Boucle de discussion
+$('go').onclick = async () => {
+  if (running) { stopFlag = true; return; }
+  const topic = $('topic').value.trim();
+  const order = names.filter(n => sel.has(n));
+  if (!topic || order.length < 2) { alert('Saisissez un sujet et choisissez au moins 2 IA.'); return; }
+  running = true; stopFlag = false; msgs = []; $('chat').innerHTML = '';
+  $('go').textContent = 'Stop'; $('go').classList.add('stop');
+  add('Sujet', topic);
+  const rounds = +$('rounds').value, list = order.join(', ');
+  outer: for (let r = 0; r < rounds; r++) {
+    for (const n of order) {
+      if (stopFlag) break outer;
+      const transcript = msgs.filter(m => !m.err).map(m => `${m.who} : ${m.text}`).join('\n\n');
+      const system = `Tu es ${n} dans une discussion entre plusieurs IA (${list}). Réponds en français, en 3 à 4 phrases, en t'adressant aux autres. Ne te présente pas.`;
+      try { add(n, await ask(n, system, `Conversation jusqu'ici :\n\n${transcript}\n\nC'est ton tour, ${n}.`)); }
+      catch(e) { add(n, e.message, true); }
+    }
+  }
+  running = false; $('go').textContent = 'Lancer'; $('go').classList.remove('stop');
+};
+</script>
+</body>
+</html>
